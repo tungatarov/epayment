@@ -5,7 +5,7 @@ Bitrix Framework.
 
 ## Установка
 
-Склонируйте репозиторий в папку вашего сайта: /bitrix/php_interface/include/sale_payment/.  
+Клонируйте репозиторий в папку вашего сайта: /bitrix/php_interface/include/sale_payment/.  
 `git clone git@github.com:tungatarov/epayment.git`
 
 ## Настройка
