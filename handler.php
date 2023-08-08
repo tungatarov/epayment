@@ -325,7 +325,7 @@ class EpaymentHandler extends PaySystem\ServiceHandler
                             "#STATUS_CODE#" => $httpStatus
                         ])
                     ),
-                    new Error(self::encode($response))
+                    new Error($response)
                 ]
             );
 
