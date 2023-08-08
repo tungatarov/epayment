@@ -5,6 +5,7 @@ namespace Sale\Handlers\PaySystem;
 use Bitrix\Main;
 use Bitrix\Main\Error;
 use Bitrix\Main\Localization\Loc;
+use Bitrix\Main\Web\HttpClient;
 use Bitrix\Main\Request;
 use Bitrix\Main\Type\DateTime;
 use Bitrix\Main\Context;
@@ -25,6 +26,8 @@ class EpaymentHandler extends PaySystem\ServiceHandler
     private const PAYMENT_STATUS_SUCCEEDED = 'ok';
     private const PAYMENT_STATUS_CANCELED = 'error';
 
+    private const SEND_METHOD_HTTP_POST = "POST";
+    private const SEND_METHOD_HTTP_GET = "GET";
 
     /**
      * @param Payment $payment
@@ -153,7 +156,7 @@ class EpaymentHandler extends PaySystem\ServiceHandler
         $currency = $payment->getField("CURRENCY");
         $terminal = $this->getBusinessValue($payment, 'EPAYMENT_TERMINAL_ID');
 
-        $data = [
+        $params = [
             'grant_type' => 'client_credentials',
             'scope' => 'webapi usermanagement email_send verification statement statistics payment',
             'client_id' => $clientId,
@@ -166,51 +169,19 @@ class EpaymentHandler extends PaySystem\ServiceHandler
             'failurePostLink' => ''
         ];
 
-        $requestData = http_build_query($data);
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestData);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        $response = curl_exec($ch);
-        $curlErrno = curl_errno($ch);
-        $curlError = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        curl_close($ch);
-
-        PaySystem\Logger::addDebugInfo('Epayment: authorizationTokenResponse: ' . $response);
-
-        if (!$curlErrno)
+        $sendResult = $this->sendRequest(self::SEND_METHOD_HTTP_POST, $url, $params);
+        if (!$sendResult->isSuccess())
         {
-            switch ($httpCode)
-            {
-                case 200:
-                    $result->setData(Main\Web\Json::decode($response));
-                    break;
-                default:
-                    $result->addErrors(
-                        [
-                            new Error(
-                                Loc::getMessage("SALE_HPS_EPAYMENT_ERROR_HTTP_STATUS", [
-                                    "#STATUS_CODE#" => $httpCode
-                                ])
-                            ),
-                            new Error(Main\Web\Json::decode($response))
-                        ]
-                    );
-            }
+            $result->addErrors($sendResult->getErrors());
+            return $result;
         }
-        else
-        {
-            $errorMessage = sprintf('CURL errno: %d. %s', $curlErrno, $curlError);
-            $result->addError(new Error($errorMessage));
-        }
+
+        $response = $sendResult->getData();
+        $result->setData($response);
 
         return $result;
     }
+
 
     /**
      * @param Payment $payment
@@ -282,6 +253,89 @@ class EpaymentHandler extends PaySystem\ServiceHandler
         {
             $error = __CLASS__ . ": processRequest: " . join("\n", $result->getErrorMessages());
             PaySystem\Logger::addError($error);
+        }
+
+        return $result;
+    }
+
+
+    /**
+     * @param $method
+     * @param $url
+     * @param array $params
+     * @param array $headers
+     * @return PaySystem\ServiceResult
+     * @throws Main\ArgumentException
+     * @throws Main\ArgumentNullException
+     * @throws Main\ArgumentOutOfRangeException
+     * @throws Main\ArgumentTypeException
+     * @throws Main\ObjectException
+     */
+    private function sendRequest($method, $url, array $params = array(), array $headers = array()): PaySystem\ServiceResult
+    {
+        $result = new PaySystem\ServiceResult();
+
+        $httpClient = new HttpClient();
+
+        foreach ($headers as $name => $value)
+        {
+            $httpClient->setHeader($name, $value);
+        }
+
+        if ($method === self::SEND_METHOD_HTTP_GET)
+        {
+            $response = $httpClient->get($url);
+        }
+        else
+        {
+            PaySystem\Logger::addDebugInfo(__CLASS__.': request data: ' . static::encode($params));
+
+            $response = $httpClient->post($url, $params);
+        }
+
+        if ($response === false)
+        {
+            $errors = $httpClient->getError();
+            if ($errors)
+            {
+                $errorMessages = [];
+                foreach ($errors as $code => $message)
+                {
+                    $errorMessages[] = "{$code}={$message}";
+                }
+
+                PaySystem\Logger::addDebugInfo(
+                    __CLASS__ . ': response error: ' . implode(', ', $errorMessages)
+                );
+            }
+
+            $result->addError(new Main\Error(Localization\Loc::getMessage('SALE_HPS_EPAYMENT_CHECKOUT_ERROR_QUERY')));
+            return $result;
+        }
+
+        PaySystem\Logger::addDebugInfo(__CLASS__.': response data: '.$response);
+
+        $httpStatus = $httpClient->getStatus();
+        if ($httpStatus !== 200)
+        {
+            $result->addErrors(
+                [
+                    new Error(
+                        Loc::getMessage("SALE_HPS_EPAYMENT_ERROR_HTTP_STATUS", [
+                            "#STATUS_CODE#" => $httpStatus
+                        ])
+                    ),
+                    new Error(self::encode($response))
+                ]
+            );
+
+            return $result;
+        }
+
+        $response = self::decode($response);
+        if ($response)
+        {
+            $result->setData($response);
         }
 
         return $result;
