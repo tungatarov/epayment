@@ -71,7 +71,7 @@ class EpaymentHandler extends PaySystem\ServiceHandler
     {
         $result = new PaySystem\ServiceResult();
 
-        $authorizationTokenResult = $this->requestAuthorizationToken($payment);
+        $authorizationTokenResult = $this->getAuthorizationToken($payment);
         if (!$authorizationTokenResult->isSuccess())
         {
             $result->addErrors($authorizationTokenResult->getErrors());
@@ -139,7 +139,7 @@ class EpaymentHandler extends PaySystem\ServiceHandler
      * @param Payment $payment
      * @return PaySystem\ServiceResult
      */
-    private function requestAuthorizationToken(Payment $payment)
+    private function getAuthorizationToken(Payment $payment)
     {
         $result = new PaySystem\ServiceResult();
 
